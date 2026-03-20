@@ -8,7 +8,7 @@ import pandas as pd
 from addict import Dict
 from pathlib import Path
 
-from project.utils.configs import ParamConfig 
+from utils.configs import ParamConfig 
 
 
 class SetTemplate():

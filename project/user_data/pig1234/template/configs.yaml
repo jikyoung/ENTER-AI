@@ -61,7 +61,7 @@ chatgpt:
   templates:
     conversation:
       document: ''
-      document_default: '내용 : {page_content}, 날짜 : {날짜}
+      document_default: '내용 : {page_content}, 날짜 : {postdate}
 
         '
       condense: ''
@@ -89,7 +89,7 @@ chatgpt:
         \ used in the report, ensuring credibility and transparency\n\nHere is opinions\
         \ about the company, product or service\n{context}\n"
       document: ''
-      document_default: '내용 : {page_content}, 날짜 : {날짜}
+      document_default: '내용 : {page_content}, 날짜 : {postdate}
 
         '
 embedding:

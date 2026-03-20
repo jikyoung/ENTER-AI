@@ -6,7 +6,7 @@ import torch
 from pathlib import Path
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 
-from project.utils.configs import ParamConfig
+from utils.configs import ParamConfig
 
 
 class LlmPipeline():

@@ -1,11 +1,13 @@
 import os
+import asyncio
+import shutil
 import pandas as pd
 from pathlib import Path
 from fastapi import APIRouter
 from pydantic import BaseModel
 from fastapi.responses import FileResponse
 from fastapi.responses import StreamingResponse
-from langchain.embeddings import OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 
 from server.modules.set_template import SetTemplate
 from llm_model.llama2_answer import LangchainPipline
@@ -147,26 +149,35 @@ class FastApiServer:
     async def start_crawl(self,
                           user_id: str,
                           keyword: str):
-        
+
         target_col = 'document'
-        
+
         lp = LangchainPipline(user_id=user_id)
-        
+
         cm = CrawlManager(user_id=user_id,
                           keyword=keyword)
         cm.run()
-        
-        data = pd.read_csv(cm.base_dir / 'merged_data.csv')
-        
-        filtered_data = []
-        for _, row in data.iterrows():
-            if lp.chain(question = row[target_col]).strip() == 'Yes':
-                filtered_data.append(row)
 
-        result_df = pd.DataFrame(filtered_data)
+        data = pd.read_csv(cm.base_dir / 'merged_data.csv')
+        data = data.dropna(subset=[target_col])
+        data = data[data[target_col].str.strip() != ''].reset_index(drop=True)
+
+        results = await asyncio.gather(*[
+            lp.async_chain(question=text)
+            for text in data[target_col]
+        ])
+
+        mask = [r.strip().lower().startswith('yes') for r in results]
+        result_df = data[mask].reset_index(drop=True)
         result_df.to_csv(cm.base_dir / 'filtered_data.csv', index=False)
-        
-        VectorPipeline.embedding_and_store(data       = data,
+
+        # 이전 크롤링 폴더 삭제 (최신 1개만 유지)
+        crawl_keyword_dir = cm.base_dir.parent
+        old_dirs = sorted(crawl_keyword_dir.iterdir())
+        for old_dir in old_dirs[:-1]:
+            shutil.rmtree(str(old_dir))
+
+        VectorPipeline.embedding_and_store(data       = result_df,
                                            user_id    = user_id,
                                            keyword    = keyword,
                                            target_col = target_col,

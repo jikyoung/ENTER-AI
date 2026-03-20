@@ -40,10 +40,16 @@ class CrawlManager():
     @staticmethod
     def run_docker_splash():
 
+        # 이미 실행 중인 splash 컨테이너 확인
+        check_command = "docker ps --filter ancestor=scrapinghub/splash --format '{{.ID}}'"
+        existing = subprocess.check_output(check_command, shell=True).strip().decode("utf-8")
+
+        if existing:
+            return existing
+
         docker_command = "docker run -d -p 8050:8050 scrapinghub/splash"
         container_id = subprocess.check_output(docker_command, shell=True).strip().decode("utf-8")
         time.sleep(2)
-
 
         return container_id
 
@@ -74,7 +80,18 @@ class CrawlManager():
 
 
     def _get_spider_name(self, except_spider):
+        import sys
         spiders_list = []
+
+        crawler_root = str(self.module_path.parent.parent)
+
+        # sys.modules에서 충돌하는 캐시를 임시 제거 후 복원
+        cached = {k: v for k, v in sys.modules.items() if k == 'utils' or k.startswith('utils.')}
+        for k in cached:
+            del sys.modules[k]
+
+        if crawler_root not in sys.path:
+            sys.path.insert(0, crawler_root)
 
         for modules in self.module_path.rglob('./*.py'):
             if (modules.name == '__init__.py') or (modules.name == None):
@@ -88,7 +105,32 @@ class CrawlManager():
                 if inspect.isclass(obj) and 'Spider' in name and issubclass(obj, scrapy.Spider):
                     spiders_list.append(name)
 
+        # 캐시 복원
+        sys.modules.update(cached)
+
         return [item for item in spiders_list if item not in except_spider]
+
+
+    def get_crawl_data(self):
+        crawl_keyword_dir = self.base_dir.parent
+
+        if not crawl_keyword_dir.is_dir():
+            return {'status': False}
+
+        result = {}
+        for crawl_dir in sorted(crawl_keyword_dir.iterdir()):
+            merged_csv = crawl_dir / 'merged_data.csv'
+            if merged_csv.is_file():
+                try:
+                    df = pd.read_csv(merged_csv)
+                    result[crawl_dir.name] = len(df)
+                except Exception:
+                    continue
+
+        if not result:
+            return {'status': False}
+
+        return result
 
 
     def merge_csv_files(self):

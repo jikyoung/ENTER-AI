@@ -1,5 +1,8 @@
+import os
 import uvicorn
 from fastapi import FastAPI
+
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 from fastapi.middleware.cors import CORSMiddleware
 
 from server.apps import FastApiServer

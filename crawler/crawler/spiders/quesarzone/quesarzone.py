@@ -144,14 +144,14 @@ class QuesarzoneSpider(scrapy.Spider):
         Quesarzone_data = dict(url              = self.start_urls[0],
                                site             = self.site,
                                document         = document,
-                               documenttype     = np.NaN,
+                               documenttype     = np.nan,
                                postdate         = date,
-                               likes            = np.NaN,
-                               dislike          = np.NaN,
+                               likes            = np.nan,
+                               dislike          = np.nan,
                                comment_cnt      = comment_cnt,
                                views            = views,
                                boardcategory    = boardcategory,
-                               documentcategory = np.NaN
+                               documentcategory = np.nan
                                )
 
         yield Quesarzone_data

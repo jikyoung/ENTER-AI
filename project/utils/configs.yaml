@@ -48,7 +48,7 @@ chatgpt:
       document: |
 
       document_default: |
-                        내용 : {page_content}, 날짜 : {날짜}
+                        내용 : {page_content}, 날짜 : {postdate}
       
       condense: |
                 
@@ -78,10 +78,10 @@ chatgpt:
       document: |
                  
       document_default: |
-                        내용 : {page_content}, 날짜 : {날짜}
+                        내용 : {page_content}, 날짜 : {postdate}
 
     params:
-      model: gpt-3.5-turbo #gpt-4
+      model: gpt-4o-mini #gpt-4
 
 
 embedding:

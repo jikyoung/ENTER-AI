@@ -6,3 +6,7 @@ __pycache__/
 *.faiss
 *.log
 .vscode/
+.DS_Store
+.env
+project/user_data/*/crawl_data/
+project/user_data/user01/

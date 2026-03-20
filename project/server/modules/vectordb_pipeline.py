@@ -1,8 +1,8 @@
 import shutil
 import pandas as pd
 from pathlib import Path
-from langchain.vectorstores.faiss import FAISS
-from langchain.document_loaders import DataFrameLoader
+from langchain_community.vectorstores import FAISS
+from langchain_community.document_loaders import DataFrameLoader
 
 class VectorPipeline():
     BASE_DIR = Path(__file__).parent.parent.parent / 'user_data'
@@ -17,21 +17,17 @@ class VectorPipeline():
         
         kwd_db_path = cls.BASE_DIR / user_id / 'database' / f'{keyword}'  
         
-        loader = DataFrameLoader(data_frame          = data, 
+        data = data.dropna(subset=[target_col])
+        loader = DataFrameLoader(data_frame          = data,
                                  page_content_column = target_col)
         docs = loader.load()
         vectorstore = FAISS.from_documents(documents = docs, 
                                            embedding = embedding)
         
         if kwd_db_path.is_dir():
-            vectorstore_old = FAISS.load_local(folder_path = kwd_db_path, 
-                                               embeddings  = embedding)
-            vectorstore_old.merge_from(vectorstore)
-            vectorstore_old.save_local(kwd_db_path)
-            
-        else:
-            vectorstore.save_local(folder_path=kwd_db_path, 
-                                   )
+            shutil.rmtree(str(kwd_db_path))
+
+        vectorstore.save_local(folder_path=kwd_db_path)
             
             
     @classmethod

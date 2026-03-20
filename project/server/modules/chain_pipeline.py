@@ -8,17 +8,16 @@ import pickle
 from pathlib import Path
 from operator import itemgetter
 
-from langchain.chat_models import ChatOpenAI
-from langchain.schema import format_document
-from langchain.vectorstores.faiss import FAISS
-from langchain.prompts import PromptTemplate, ChatPromptTemplate
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import format_document
+from langchain_community.vectorstores import FAISS
+from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
 
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.memory import ConversationBufferMemory
-from langchain.retrievers.multi_query import MultiQueryRetriever
+from langchain_openai import OpenAIEmbeddings
+from langchain_classic.memory import ConversationBufferMemory
+from langchain_classic.retrievers.multi_query import MultiQueryRetriever
 
-from langchain_core.messages import get_buffer_string
-from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import MessagesPlaceholder
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 
 from reportlab.lib.units import cm
@@ -30,8 +29,8 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus.flowables import HRFlowable
 from reportlab.platypus import BaseDocTemplate, PageTemplate, KeepTogether, Frame
 
-from project.utils.mermaid_utils import *
-from project.server.modules.set_template import SetTemplate
+from utils.mermaid_utils import *
+from server.modules.set_template import SetTemplate
 
 
 class ChainPipeline():
@@ -86,88 +85,68 @@ class ChainPipeline():
             chat_history=RunnableLambda(memory_k.load_memory_variables) | itemgetter("history"),
         )
         
-        if self.config.condense == '':
-            condense_prompt = self.config.condense_default
-            
-        else:
-            condense_prompt = self.config.condense
-            
-        CONDENSE_QUESTION_PROMPT = ChatPromptTemplate.from_messages([
-                                                                    ("system", condense_prompt + ' conversation : {chat_history}'),
-                                                                    ("human", "{question}"),
-                                                                    ])
-
-        # Now we calculate the standalone question
-        standalone_question = {
-            "standalone_question": {
-                "question": lambda x: x["question"],
-                "chat_history": lambda x: get_buffer_string(x["chat_history"]),
-            }
-            | CONDENSE_QUESTION_PROMPT
-            | ChatOpenAI(temperature = 0,
-                         model       = self.params.load('chatgpt','params').model
-                         )
-            | StrOutputParser(),
-        }
-        
-        #3. 벡터DB에서 불러오기 : retrieved_documents 부분
-        vectorstore = FAISS.load_local(folder_path = self.database_path, 
-                                       embeddings  = OpenAIEmbeddings())
-        retriever = vectorstore.as_retriever()#(search_kwargs={"k": 50})
-
-        retriever_from_llm = MultiQueryRetriever.from_llm(retriever = retriever, 
-                                                          llm       = ChatOpenAI(model       = self.params.load('chatgpt','params').model,
-                                                                                 temperature = 0))
-        
-        # Now we retrieve the documents
-        retrieved_documents = {
-            "docs": itemgetter("standalone_question") | retriever_from_llm,
-            "question": lambda x: x["standalone_question"],
-        }
-
-        #4. 최종 답하는 부분 : answer 부분
-        # context를 참조해 한국어로 질문에 답변하는 템플릿
-        
         if self.config.system == '':
             answer_prompt = self.config.system_default
-            
         else:
             answer_prompt = self.config.system
-        
-        ANSWER_PROMPT = ChatPromptTemplate.from_messages([
-                                                        ("system", answer_prompt),
-                                                        ("human", "{question}"),
-                                                        ])
-        
-        if self.config.document == '':
-            document_prompt = self.config.document_default
-            
+
+        #3. 벡터DB 존재 여부 확인
+        if self.database_path.is_dir():
+            vectorstore = FAISS.load_local(folder_path = self.database_path,
+                                           embeddings  = OpenAIEmbeddings(),
+                                           allow_dangerous_deserialization = True)
+            retriever = vectorstore.as_retriever()
+
+            retriever_from_llm = MultiQueryRetriever.from_llm(retriever = retriever,
+                                                              llm       = ChatOpenAI(model       = self.params.load('chatgpt','params').model,
+                                                                                     temperature = 0))
+
+            retrieved_documents = {
+                "docs": itemgetter("question") | retriever_from_llm,
+                "question": itemgetter("question"),
+                "chat_history": itemgetter("chat_history"),
+            }
+
+            if self.config.document == '':
+                document_prompt = self.config.document_default
+            else:
+                document_prompt = self.config.document
+
+            DEFAULT_DOCUMENT_PROMPT = PromptTemplate.from_template(template=document_prompt)
+
+            def _combine_documents(docs, document_prompt=DEFAULT_DOCUMENT_PROMPT, document_separator="\n\n"):
+                doc_strings = [format_document(doc, document_prompt) for doc in docs]
+                return document_separator.join(doc_strings)
+
+            ANSWER_PROMPT = ChatPromptTemplate.from_messages([
+                ("system", answer_prompt),
+                MessagesPlaceholder(variable_name="chat_history"),
+                ("human", "{question}"),
+            ])
+
+            final_inputs = {
+                "context": lambda x: _combine_documents(x["docs"]),
+                "question": itemgetter("question"),
+                "chat_history": itemgetter("chat_history"),
+            }
+            answer = {
+                "answer": final_inputs | ANSWER_PROMPT | ChatOpenAI(model=self.params.load('chatgpt','params').model),
+            }
+
+            final_chain = loaded_memory | retrieved_documents | answer
+
         else:
-            document_prompt = self.config.document
+            # 벡터DB 없을 때 일반 ChatGPT로 폴백
+            FALLBACK_PROMPT = ChatPromptTemplate.from_messages([
+                ("system", "You are a helpful assistant. Answer in Korean."),
+                MessagesPlaceholder(variable_name="chat_history"),
+                ("human", "{question}"),
+            ])
+            answer = {
+                "answer": FALLBACK_PROMPT | ChatOpenAI(model=self.params.load('chatgpt','params').model),
+            }
 
-        DEFAULT_DOCUMENT_PROMPT = PromptTemplate.from_template(template=document_prompt)
-  
-
-        def _combine_documents(docs, document_prompt=DEFAULT_DOCUMENT_PROMPT, document_separator="\n\n"):
-            doc_strings = [format_document(doc, document_prompt) for doc in docs]
-            print(doc_strings)
-            
-            return document_separator.join(doc_strings)
-        
-
-        # Now we construct the inputs for the final prompt
-        final_inputs = {
-                        "context": lambda x: _combine_documents(x["docs"]),
-                        "question": itemgetter("question"),
-                        }
-        # And finally, we do the part that returns the answers
-        answer = {
-                  "answer": final_inputs | ANSWER_PROMPT | ChatOpenAI(model=self.params.load('chatgpt','params').model),
-                  #"docs": itemgetter("docs"),
-                  }
-        
-        #5. 체인 연결
-        final_chain = loaded_memory | standalone_question | retrieved_documents | answer
+            final_chain = loaded_memory | answer
         
         return final_chain
     
@@ -238,12 +217,13 @@ class ReportChainPipeline():
     
     def load_chain(self):
         
-        vectorstore = FAISS.load_local(folder_path = self.database_path, 
-                                       embeddings  = OpenAIEmbeddings())
-        retriever = vectorstore.as_retriever()#search_kwargs={"k": 10})
+        vectorstore = FAISS.load_local(folder_path = self.database_path,
+                                       embeddings  = OpenAIEmbeddings(),
+                                       allow_dangerous_deserialization = True)
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
         retriever_from_llm = MultiQueryRetriever.from_llm(
-                                                          retriever = retriever, 
+                                                          retriever = retriever,
                                                           llm       = ChatOpenAI(model       = self.config.load('chatgpt','params').model,
                                                                                  temperature = 0,
                                                                                  ))
@@ -264,14 +244,20 @@ class ReportChainPipeline():
         else:
             self.document_template = config['document']
         
-        retrieved_documents = retriever_from_llm.get_relevant_documents(query=self.report_template)
+        retrieved_documents = retriever_from_llm.invoke(self.report_template)
         
         DEFAULT_DOCUMENT_PROMPT = PromptTemplate.from_template(template=self.document_template)
 
 
+        MAX_DOC_CHARS = 500
+
         def _combine_documents(docs, document_prompt=DEFAULT_DOCUMENT_PROMPT, document_separator="\n"):
-            doc_strings = [format_document(doc, document_prompt) for doc in docs]
-           
+            truncated_docs = []
+            for doc in docs:
+                if len(doc.page_content) > MAX_DOC_CHARS:
+                    doc.page_content = doc.page_content[:MAX_DOC_CHARS] + '...'
+                truncated_docs.append(doc)
+            doc_strings = [format_document(doc, document_prompt) for doc in truncated_docs]
             return document_separator.join(doc_strings)
         
         
@@ -280,7 +266,6 @@ class ReportChainPipeline():
                                                           ('system',ANSWER_PROMPT),
                                                           ('human',"제목은 *, 소제목은 #, 하위 항목은 -로 시작하게 해줘")])
 
-        print(answer_prompt.format_prompt().to_messages())
         result = ChatOpenAI(model=self.config.load('chatgpt','params').model).invoke(answer_prompt.format_prompt().to_messages()).content
         
 
@@ -288,8 +273,15 @@ class ReportChainPipeline():
     
     
     def to_pdf(self,content):
-        pdfmetrics.registerFont(TTFont("맑은고딕", "malgun.ttf"))
-        pdfmetrics.registerFont(TTFont("맑은고딕B", "Malgunbd.ttf"))
+        import platform
+        if platform.system() == 'Windows':
+            regular_font = "malgun.ttf"
+            bold_font    = "Malgunbd.ttf"
+        else:
+            regular_font = str(Path.home() / "Library/Fonts/NanumGothic-Regular.ttf")
+            bold_font    = str(Path.home() / "Library/Fonts/NanumGothic-Bold.ttf")
+        pdfmetrics.registerFont(TTFont("맑은고딕", regular_font))
+        pdfmetrics.registerFont(TTFont("맑은고딕B", bold_font))
         # text_frame = Frame(
         #     x1=2.54 * cm ,  # From left
         #     y1=2.54 * cm ,  # From bottom

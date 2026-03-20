@@ -61,7 +61,7 @@ chatgpt:
       document: '
 
         '
-      document_default: '내용 : {page_content}, 날짜 : {날짜}
+      document_default: '내용 : {page_content}, 날짜 : {postdate}
 
         '
       condense: '
@@ -88,10 +88,10 @@ chatgpt:
         \ *Conclusion *References  \n 반드시 제시된 분석방법들에 대한 결과를 자세히 써주세요.\n  위의 양식에\
         \ 알맞게 KT인터넷에 대한 장점과 단점, 개선점, 미래 전략, SKT, LGU+ 같은 경쟁사와의 비교 등을 담은 보고서를 반드시 한국어로\
         \ 써주시기 바랍니다.\n  KT인터넷에 대한 다음 의견들을 참고해서 보고서를 쓰기 바랍니다. {context}"
-      document: '내용 : {page_content}, 날짜 : {날짜}
+      document: '내용 : {page_content}, 날짜 : {postdate}
 
         '
-      document_default: '내용 : {page_content}, 날짜 : {날짜}
+      document_default: '내용 : {page_content}, 날짜 : {postdate}
 
         '
     params:
