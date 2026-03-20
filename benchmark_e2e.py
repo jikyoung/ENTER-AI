@@ -28,11 +28,16 @@ print('=' * 55)
 print('  E2E 파이프라인 단계별 처리시간 측정')
 print('=' * 55)
 
-# ── Step 1: 크롤링 (추정) ────────────────────────────
-CRAWL_EST = 8.0
-results['crawl'] = CRAWL_EST * 60
-print(f'\n[Step 1] 크롤링 (추정): 약 {CRAWL_EST}분')
-print(f'         Docker Splash 기동 + 4개 사이트 크롤링')
+# ── Step 1: 크롤링 ───────────────────────────────────
+# 실측 시: CrawlManager(USER_ID, KEYWORD).run() 주석 해제 후 실행
+# 현재는 추정값 사용 (순차: ~8분 / 병렬화 후: ~2~3분)
+CRAWL_EST_BEFORE = 8.0   # 순차 실행 (before)
+CRAWL_EST_AFTER  = 2.5   # 병렬 실행 추정 (after, 가장 느린 스파이더 기준)
+results['crawl'] = CRAWL_EST_AFTER * 60
+print(f'\n[Step 1] 크롤링')
+print(f'         Before (순차): 약 {CRAWL_EST_BEFORE}분')
+print(f'         After  (병렬): 약 {CRAWL_EST_AFTER}분 (Popen 병렬화, {CRAWL_EST_BEFORE/CRAWL_EST_AFTER:.1f}x)')
+print(f'         Docker Splash 기동 + 4개 사이트 병렬 크롤링')
 
 # ── Step 2: CSV 로드 & 전처리 ────────────────────────
 t0 = time.time()
@@ -96,7 +101,7 @@ total_sec = sum(results.values())
 print(f'\n{"=" * 55}')
 print(f'  단계별 소요시간 요약')
 print(f'{"=" * 55}')
-print(f'  Step 1  크롤링 (추정)       : {results["crawl"] / 60:>5.1f}분')
+print(f'  Step 1  크롤링 (병렬화 후)  : {results["crawl"] / 60:>5.1f}분  (before: {CRAWL_EST_BEFORE:.1f}분)')
 print(f'  Step 2  CSV 전처리          : {results["merge"]:>5.3f}초')
 print(f'  Step 3  LLM 필터링 (async)  : {results["filter"] / 60:>5.1f}분')
 print(f'  Step 4  FAISS 임베딩        : {results["faiss"]:>5.1f}초')

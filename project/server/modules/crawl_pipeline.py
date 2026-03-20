@@ -31,8 +31,8 @@ class CrawlManager():
         if self.base_dir.is_dir() == False:
             os.makedirs(self.base_dir, exist_ok=True)
 
-        spider_command = self.get_spider_command(except_spider)
-        self.run_scrapy(spider_command)
+        spider_commands = self.get_spider_commands(except_spider)
+        self.run_scrapy(spider_commands)
         self.remove_docker_container(container_id)
         self.merge_csv_files()
 
@@ -54,10 +54,11 @@ class CrawlManager():
         return container_id
 
 
-    def run_scrapy(self, spider_command):
-        subprocess.run(spider_command, 
-                       shell = True, 
-                       cwd   = str(self.module_path.parent.parent))
+    def run_scrapy(self, spider_commands):
+        cwd = str(self.module_path.parent.parent)
+        procs = [subprocess.Popen(cmd, shell=True, cwd=cwd) for cmd in spider_commands]
+        for p in procs:
+            p.wait()
 
 
     def remove_docker_container(self, container_id):
@@ -69,14 +70,15 @@ class CrawlManager():
         subprocess.run(remove_command, shell=True)
 
 
-    def get_spider_command(self, except_spider):
+    def get_spider_commands(self, except_spider):
 
         spiders = self._get_spider_name(except_spider)
-        scrapy_command = ""
+        commands = []
         for spider in spiders:
-            scrapy_command += f"scrapy crawl {spider} -a user_id={self.user_id} -a keyword={self.keyword} -o {self.base_dir}/A_{spider.lower().split('spider')[0]}.csv \n"
-        
-        return scrapy_command
+            cmd = f"scrapy crawl {spider} -a user_id={self.user_id} -a keyword={self.keyword} -o {self.base_dir}/A_{spider.lower().split('spider')[0]}.csv"
+            commands.append(cmd)
+
+        return commands
 
 
     def _get_spider_name(self, except_spider):
