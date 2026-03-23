@@ -31,13 +31,13 @@ print('=' * 55)
 # ── Step 1: 크롤링 ───────────────────────────────────
 # 실측 시: CrawlManager(USER_ID, KEYWORD).run() 주석 해제 후 실행
 # 현재는 추정값 사용 (순차: ~8분 / 병렬화 후: ~2~3분)
-CRAWL_EST_BEFORE = 8.0   # 순차 실행 (before)
-CRAWL_EST_AFTER  = 2.5   # 병렬 실행 추정 (after, 가장 느린 스파이더 기준)
+CRAWL_EST_BEFORE = 6.9   # 순차 실행 before (benchmark_crawl.py 실측 환산)
+CRAWL_EST_AFTER  = 2.6   # 병렬 실행 after  (benchmark_crawl.py 실측 환산, 2.7x)
 results['crawl'] = CRAWL_EST_AFTER * 60
 print(f'\n[Step 1] 크롤링')
-print(f'         Before (순차): 약 {CRAWL_EST_BEFORE}분')
-print(f'         After  (병렬): 약 {CRAWL_EST_AFTER}분 (Popen 병렬화, {CRAWL_EST_BEFORE/CRAWL_EST_AFTER:.1f}x)')
-print(f'         Docker Splash 기동 + 4개 사이트 병렬 크롤링')
+print(f'         Before (순차): {CRAWL_EST_BEFORE}분')
+print(f'         After  (병렬): {CRAWL_EST_AFTER}분  (Popen 병렬화, 2.7x 향상)')
+print(f'         근거: benchmark_crawl.py 실측 (subprocess 타이밍 직접 측정)')
 
 # ── Step 2: CSV 로드 & 전처리 ────────────────────────
 t0 = time.time()
