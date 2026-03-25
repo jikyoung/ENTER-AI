@@ -177,12 +177,14 @@ class FastApiServer:
         for old_dir in old_dirs[:-1]:
             shutil.rmtree(str(old_dir))
 
-        VectorPipeline.embedding_and_store(data       = result_df,
-                                           user_id    = user_id,
-                                           keyword    = keyword,
-                                           target_col = target_col,
-                                           embedding  = OpenAIEmbeddings(),
-                                           )
+        embedding = OpenAIEmbeddings()
+        added = VectorPipeline.merge_into_store(data       = result_df,
+                                                user_id    = user_id,
+                                                keyword    = keyword,
+                                                target_col = target_col,
+                                                embedding  = embedding,
+                                                )
+        return {'status': 'ok', 'added': added, 'total_filtered': len(result_df)}
       
     
     async def new_chat(self, user_id):
