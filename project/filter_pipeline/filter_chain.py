@@ -8,34 +8,42 @@ from langchain_core.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI
 
 from server.modules.set_template import SetTemplate
-from utils.configs import ParamConfig
 
 
 class FilterChain():
 
     def __init__(self,
-                 user_id,
-                 model_path=None):
+                 user_id: str,
+                 keyword: str):
 
-        self.user_id  = user_id
-        self.template = SetTemplate(user_id)
-        self.params   = ParamConfig()
+        self.user_id = user_id
+        self.keyword = keyword
+        template     = SetTemplate(user_id)
 
-        llm = ChatOpenAI(model       = self.template.load('chatgpt', 'params').model,
-                         temperature = 0)
+        llm = ChatOpenAI(model=template.load('chatgpt', 'params').model, temperature=0)
 
         prompt = PromptTemplate(
-            input_variables = ["user_input"],
-            template        = self.template.load_template('llama', 'crawl')
+            input_variables=["user_input"],
+            template=self._build_prompt(keyword),
         )
 
         self._chain = LLMChain(llm=llm, prompt=prompt, verbose=False)
 
-
+    @staticmethod
+    def _build_prompt(keyword: str) -> str:
+        return (
+            f"다음 텍스트가 '{keyword}'의 실제 사용 경험, 서비스 품질, 제품 평가에 대한 "
+            f"사용자 의견을 담고 있으면 'yes'로 시작하여 답하세요.\n"
+            f"다음의 경우는 반드시 'no'로 답하세요:\n"
+            f"- 중고거래, 판매글, 구매 문의\n"
+            f"- '{keyword}'가 단순 언급만 된 글 (글의 주제가 아닌 경우)\n"
+            f"- 스포츠, 정치, 사회 이슈 등 서비스/제품과 무관한 글\n"
+            f"- 단순 기술 설정 오류 문의 ('{keyword}' 서비스 경험과 무관한 경우)\n\n"
+            f"User: {{user_input}}"
+        )
 
     def chain(self, question):
         return self._chain.predict(user_input=question)
-
 
     async def async_chain(self, question):
         return await self._chain.apredict(user_input=question)
