@@ -4,6 +4,7 @@ pyrootutils.setup_root(search_from = __file__,
                        pythonpath  = True)
 
 import os
+import asyncio
 import pickle
 from pathlib import Path
 from operator import itemgetter
@@ -31,6 +32,7 @@ from reportlab.platypus import BaseDocTemplate, PageTemplate, KeepTogether, Fram
 
 from utils.mermaid_utils import *
 from server.modules.set_template import SetTemplate
+from server.modules.topic_pipeline import TopicPipeline
 
 
 class ChainPipeline():
@@ -202,54 +204,115 @@ class ChainPipeline():
 
     
 class ReportChainPipeline():
-        
-    def __init__(self, 
-                user_id:str, 
+
+    def __init__(self,
+                user_id:str,
                 keyword:str,
                 ):
-        self.BASE_DIR          = Path(__file__).parent.parent.parent / 'user_data' / user_id 
+        self.BASE_DIR          = Path(__file__).parent.parent.parent / 'user_data' / user_id
         self.database_path     = self.BASE_DIR / 'database' / keyword
         self.user_id           = user_id
         self.keyword           = keyword
         self.config            = SetTemplate(user_id)
         self.report_template   = ''
         self.document_template = ''
-    
-    def load_chain(self):
-        
+
+    async def _analyze_sentiment_all(self, vectorstore) -> dict:
+        # 전체 문서 추출
+        index_to_id = vectorstore.index_to_docstore_id
+        all_docs = [vectorstore.docstore.search(index_to_id[i]) for i in range(len(index_to_id))]
+
+        mini_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
+        async def classify(doc):
+            text = doc.page_content[:300].replace('\x00', '').replace('\r', ' ').strip()
+            prompt = f"다음 텍스트의 감성을 '긍정', '부정', '중립' 중 하나로만 답하세요.\n\n{text}"
+            try:
+                result = await mini_llm.ainvoke(prompt)
+                return result.content.strip()
+            except Exception:
+                return '중립'
+
+        labels = await asyncio.gather(*[classify(doc) for doc in all_docs])
+
+        pos = labels.count('긍정')
+        neg = labels.count('부정')
+        neu = labels.count('중립')
+        total = len(labels)
+
+        # 감성별 대표 의견 (조회수 높은 순 상위 3개씩)
+        tagged = list(zip(labels, all_docs))
+
+        PROFANITY_PATTERNS = ['시발', '씨발', '개새', '병신', '좆', '보지', '자지', '쌍년', '새끼야', '미친놈', '존나', '지랄']
+
+        def top_docs(sentiment, n=3):
+            docs = [(d.metadata.get('views', 0), d.page_content[:200]) for l, d in tagged if l == sentiment]
+            docs.sort(key=lambda x: int(x[0]) if str(x[0]).isdigit() else 0, reverse=True)
+            filtered = [content for _, content in docs if not any(p in content for p in PROFANITY_PATTERNS)]
+            return filtered[:n]
+
+        return {
+            'total': total,
+            'pos': pos, 'pos_pct': round(pos / total * 100, 1),
+            'neg': neg, 'neg_pct': round(neg / total * 100, 1),
+            'neu': neu, 'neu_pct': round(neu / total * 100, 1),
+            'top_pos': top_docs('긍정'),
+            'top_neg': top_docs('부정'),
+        }
+
+    async def load_chain(self):
+
         vectorstore = FAISS.load_local(folder_path = self.database_path,
                                        embeddings  = OpenAIEmbeddings(),
                                        allow_dangerous_deserialization = True)
-        retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 30})
 
         retriever_from_llm = MultiQueryRetriever.from_llm(
                                                           retriever = retriever,
                                                           llm       = ChatOpenAI(model       = self.config.load('chatgpt','params').model,
                                                                                  temperature = 0,
                                                                                  ))
-        
-        # Now we retrieve the documents
+
         config = self.config.params.load(self.BASE_DIR / 'template' / 'configs.yaml' ,addict=False)['chatgpt']['templates']['report']
-        
+
         if config['prompt'] == '':
             self.report_template = config['prompt_default']
-            
         else:
             self.report_template = config['prompt']
-            
-       
+
         if config['document'] == '':
             self.document_template = config['document_default']
-            
         else:
             self.document_template = config['document']
-        
+
+        # 전체 문서 감성 분석 + 토픽 클러스터링 병렬 실행
+        sentiment_task = self._analyze_sentiment_all(vectorstore)
+        topic_task = asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: TopicPipeline(self.user_id, self.keyword).run(n_clusters=10)
+        )
+        sentiment, topics = await asyncio.gather(sentiment_task, topic_task)
+
+        sentiment_summary = f"""
+[감성 분석 결과 - 전체 {sentiment['total']}개 문서]
+- 긍정: {sentiment['pos']}개 ({sentiment['pos_pct']}%)
+- 부정: {sentiment['neg']}개 ({sentiment['neg_pct']}%)
+- 중립: {sentiment['neu']}개 ({sentiment['neu_pct']}%)
+
+[긍정 대표 의견]
+{chr(10).join(f'- {d}' for d in sentiment['top_pos'])}
+
+[부정 대표 의견]
+{chr(10).join(f'- {d}' for d in sentiment['top_neg'])}
+"""
+
+        topic_summary = TopicPipeline(self.user_id, self.keyword).to_summary_text(topics)
+
         retrieved_documents = retriever_from_llm.invoke(self.report_template)
-        
+
         DEFAULT_DOCUMENT_PROMPT = PromptTemplate.from_template(template=self.document_template)
 
-
-        MAX_DOC_CHARS = 500
+        MAX_DOC_CHARS = 1000
 
         def _combine_documents(docs, document_prompt=DEFAULT_DOCUMENT_PROMPT, document_separator="\n"):
             truncated_docs = []
@@ -259,15 +322,14 @@ class ReportChainPipeline():
                 truncated_docs.append(doc)
             doc_strings = [format_document(doc, document_prompt) for doc in truncated_docs]
             return document_separator.join(doc_strings)
-        
-        
-        ANSWER_PROMPT = self.report_template.format(context = _combine_documents(retrieved_documents))
+
+        context = sentiment_summary + "\n\n" + topic_summary + "\n\n[상세 의견 데이터]\n" + _combine_documents(retrieved_documents)
+        ANSWER_PROMPT = self.report_template.format(context=context)
         answer_prompt = ChatPromptTemplate.from_messages([('system',"당신은 한국어로 보고서를 최대한 자세히 써야합니다"),
                                                           ('system',ANSWER_PROMPT),
                                                           ('human',"제목은 *, 소제목은 #, 하위 항목은 -로 시작하게 해줘")])
 
         result = ChatOpenAI(model=self.config.load('chatgpt','params').model).invoke(answer_prompt.format_prompt().to_messages()).content
-        
 
         return self.to_pdf(result)
     
@@ -296,6 +358,9 @@ class ReportChainPipeline():
         # )
 
         content = convert_mm(content)
+        # **텍스트** → <b>텍스트</b> 변환
+        import re
+        content = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', content)
         lines = content.split('\n')
         L=[]
 

@@ -64,24 +64,26 @@ chatgpt:
       prompt: |
 
       prompt_default: |
-                      Develop a analysis report in korean about the company, product or service, Structure of report is follwing format
-                      Executive Summary: Provide a concise overview of the report's findings and recommendations.  
-                      Study Introduction: Introduce the company and its background, including its mission, vision, and core values.
-                      Methodology: Explain the research methods, data sources, and analytical tools used.
-                      Review of Statistics: Give a detailed analysis of each component, including market analysis, SWOT analysis, 5 forces model, BCG matrix, P.E.S.T.E.L analysis, 3C analysis and Business Model Canvas, etc.
-                      Conclusion: Give a summary of the main findings and insights derived from the analysis
-                      References: Citations of the sources used in the report, ensuring credibility and transparency
-                      
-                      Here is opinions about the company, product or service
+                      아래 실제 커뮤니티 사용자 의견 데이터를 기반으로 한국어 온라인 여론 분석 보고서를 작성하세요.
+                      반드시 제공된 데이터에서 구체적인 내용을 인용하여 분석하고, 데이터에 없는 내용은 추측하지 마세요.
+
+                      보고서 섹션 순서:
+                      1. Executive Summary: 감성 수치(긍정/부정/중립 비율) 포함, 핵심 여론 요약
+                      2. 데이터 수집 개요: 수집 사이트, 총 문서 수, 필터링 후 분석 문서 수
+                      3. 감성 분석 결과: 긍정/부정/중립 비율 상세, 긍정·부정 대표 의견 인용
+                      4. 주요 토픽 분석: 토픽 클러스터링 결과 기반으로 가장 많이 언급된 주제 Top 5와 각 주제별 대표 의견 인용
+                      5. 핵심 이슈 및 시사점: 데이터에서 반복적으로 등장한 문제점과 개선 제언
+
+                      분석할 데이터:
                       {context}
 
       document: |
-                 
+
       document_default: |
-                        내용 : {page_content}, 날짜 : {postdate}
+                        내용 : {page_content}, 날짜 : {postdate}, 출처 : {site}, 조회수 : {views}, 공감수 : {likes}
 
     params:
-      model: gpt-4o-mini #gpt-4
+      model: gpt-4o
 
 
 embedding:

@@ -93,7 +93,7 @@ class FastApiServer:
     async def report(self, data: Report):
         chainpipe = ReportChainPipeline(user_id=data.user_id,
                                         keyword=data.keyword)
-        result = chainpipe.load_chain()
+        result = await chainpipe.load_chain()
         
         return FileResponse(path = result, filename='test.pdf', media_type='application/octet-stream')
      
