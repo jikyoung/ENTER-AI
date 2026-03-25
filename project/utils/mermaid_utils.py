@@ -40,24 +40,27 @@ def convert_mm(content):
 
 def image_mm(line,L):
     line = line.replace("mermaid;","")
-    
+
     url = mm(line)
     url_svg = mms(line)
-    
-    res = requests.get(url)
-    x = PIL.Image.open(BytesIO(res.content))
-    imgdata = BytesIO()
-    x.save(imgdata,'JPEG')
-    imgdata.seek(0)
-    
-    if x.height > x.width:
-        ratio = 12.16/x.height
-        xd = x.width * ratio
-        L.append(platypus.Image(imgdata,xd * cm, 12.16 * cm))
-        
-    else:
-        ratio = 16/x.width
-        xd = x.height * ratio
-        L.append(platypus.Image(imgdata,16 * cm, xd * cm))
-        
-    L.append(Paragraph(f"<a href={url_svg}>show svg</a>",ParagraphStyle(name='fd',fontName='맑은고딕',fontSize=12,leading=20, textColor=blue)))
+
+    try:
+        res = requests.get(url, timeout=10)
+        x = PIL.Image.open(BytesIO(res.content))
+        imgdata = BytesIO()
+        x.save(imgdata,'JPEG')
+        imgdata.seek(0)
+
+        if x.height > x.width:
+            ratio = 12.16/x.height
+            xd = x.width * ratio
+            L.append(platypus.Image(imgdata,xd * cm, 12.16 * cm))
+
+        else:
+            ratio = 16/x.width
+            xd = x.height * ratio
+            L.append(platypus.Image(imgdata,16 * cm, xd * cm))
+
+        L.append(Paragraph(f"<a href={url_svg}>show svg</a>",ParagraphStyle(name='fd',fontName='맑은고딕',fontSize=12,leading=20, textColor=blue)))
+    except Exception:
+        pass
