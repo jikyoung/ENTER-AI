@@ -24,7 +24,12 @@ class TopicPipeline:
 
     def _name_cluster(self, docs: list[str]) -> str:
         sample = "\n".join(f"- {d[:150]}" for d in docs[:5])
-        prompt = f"다음 사용자 의견들의 공통 주제를 한국어로 5~10자 이내로 간결하게 표현하세요. 예: '가격/요금 불만', '보안 우려', 'CS 서비스 품질'\n\n{sample}"
+        prompt = (
+            f"다음은 '{self.keyword}' 관련 커뮤니티 사용자 의견들입니다.\n"
+            f"이 의견들의 공통 주제를 '{self.keyword}' 맥락에서 한국어로 5~10자 이내로 간결하게 표현하세요.\n"
+            f"예: '요금제 불만', '고객센터 불편', '속도/품질 문제', '가격 경쟁력'\n"
+            f"'{self.keyword}'와 무관한 의견들이면 '무관'으로만 답하세요.\n\n{sample}"
+        )
         llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
         result = llm.invoke(prompt)
         return result.content.strip()
@@ -54,7 +59,7 @@ class TopicPipeline:
             if not contents:
                 continue
             topic_name = self._name_cluster(contents)
-            if '의견이 없' in topic_name or len(topic_name) > 30:
+            if '무관' in topic_name or '의견이 없' in topic_name or len(topic_name) > 30:
                 continue
             results.append({
                 'topic': topic_name,

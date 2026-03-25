@@ -152,7 +152,10 @@ class FastApiServer:
 
         target_col = 'document'
 
-        lp = FilterChain(user_id=user_id)
+        # 중고거래, 스포츠 등 서비스 무관 카테고리 사전 필터 (LLM 호출 전)
+        EXCLUDE_CATEGORIES = ['장터', '중고', '팝니다', '삽니다', '판매', '스포츠', '게임', '정치']
+
+        lp = FilterChain(user_id=user_id, keyword=keyword)
 
         cm = CrawlManager(user_id=user_id,
                           keyword=keyword)
@@ -161,6 +164,14 @@ class FastApiServer:
         data = pd.read_csv(cm.base_dir / 'merged_data.csv')
         data = data.dropna(subset=[target_col])
         data = data[data[target_col].str.strip() != ''].reset_index(drop=True)
+
+        # boardcategory/documentcategory 기반 규칙 필터
+        for col in ['boardcategory', 'documentcategory']:
+            if col in data.columns:
+                mask = data[col].fillna('').apply(
+                    lambda c: not any(ex in str(c) for ex in EXCLUDE_CATEGORIES)
+                )
+                data = data[mask].reset_index(drop=True)
 
         results = await asyncio.gather(*[
             lp.async_chain(question=text)

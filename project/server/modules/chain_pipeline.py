@@ -227,7 +227,11 @@ class ReportChainPipeline():
 
         async def classify(doc):
             text = doc.page_content[:300].replace('\x00', '').replace('\r', ' ').strip()
-            prompt = f"다음 텍스트의 감성을 '긍정', '부정', '중립' 중 하나로만 답하세요.\n\n{text}"
+            prompt = (
+                f"다음 텍스트에서 '{self.keyword}'에 대한 사용자 감성을 분류하세요.\n"
+                f"'{self.keyword}' 서비스/제품에 대한 직접적인 의견이 없으면 '중립'으로 분류하세요.\n"
+                f"'긍정', '부정', '중립' 중 하나로만 답하세요.\n\n{text}"
+            )
             async with semaphore:
                 try:
                     result = await mini_llm.ainvoke(prompt)
