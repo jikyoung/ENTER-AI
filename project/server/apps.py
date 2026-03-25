@@ -13,7 +13,8 @@ from server.modules.set_template import SetTemplate
 from filter_pipeline.filter_chain import FilterChain
 from server.modules.crawl_pipeline import CrawlManager
 from server.modules.vectordb_pipeline import VectorPipeline
-from server.modules.chain_pipeline import ChainPipeline,ReportChainPipeline
+from server.modules.chain_pipeline import ChainPipeline, ReportChainPipeline
+from server.modules.report_agent import ReportAgent
 
 
 class Quest(BaseModel):
@@ -91,11 +92,14 @@ class FastApiServer:
     
     
     async def report(self, data: Report):
-        chainpipe = ReportChainPipeline(user_id=data.user_id,
-                                        keyword=data.keyword)
-        result = await chainpipe.load_chain()
-        
-        return FileResponse(path = result, filename='test.pdf', media_type='application/octet-stream')
+        agent = ReportAgent(user_id=data.user_id, keyword=data.keyword)
+        report_text = await agent.run()
+
+        # PDF 변환
+        chainpipe = ReportChainPipeline(user_id=data.user_id, keyword=data.keyword)
+        pdf_path = chainpipe.to_pdf(report_text)
+
+        return FileResponse(path=pdf_path, filename='report.pdf', media_type='application/octet-stream')
      
     
     
