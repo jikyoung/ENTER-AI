@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from langchain_openai import OpenAIEmbeddings
 
 from server.modules.set_template import SetTemplate
-from llm_model.llama2_answer import LangchainPipline
+from filter_pipeline.filter_chain import FilterChain
 from server.modules.crawl_pipeline import CrawlManager
 from server.modules.vectordb_pipeline import VectorPipeline
 from server.modules.chain_pipeline import ChainPipeline,ReportChainPipeline
@@ -152,7 +152,7 @@ class FastApiServer:
 
         target_col = 'document'
 
-        lp = LangchainPipline(user_id=user_id)
+        lp = FilterChain(user_id=user_id)
 
         cm = CrawlManager(user_id=user_id,
                           keyword=keyword)
