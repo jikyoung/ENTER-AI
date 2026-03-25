@@ -223,15 +223,17 @@ class ReportChainPipeline():
         all_docs = [vectorstore.docstore.search(index_to_id[i]) for i in range(len(index_to_id))]
 
         mini_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        semaphore = asyncio.Semaphore(50)
 
         async def classify(doc):
             text = doc.page_content[:300].replace('\x00', '').replace('\r', ' ').strip()
             prompt = f"다음 텍스트의 감성을 '긍정', '부정', '중립' 중 하나로만 답하세요.\n\n{text}"
-            try:
-                result = await mini_llm.ainvoke(prompt)
-                return result.content.strip()
-            except Exception:
-                return '중립'
+            async with semaphore:
+                try:
+                    result = await mini_llm.ainvoke(prompt)
+                    return result.content.strip()
+                except Exception:
+                    return '중립'
 
         labels = await asyncio.gather(*[classify(doc) for doc in all_docs])
 
