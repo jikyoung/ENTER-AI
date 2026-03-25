@@ -50,8 +50,12 @@ class TopicPipeline:
 
         results = []
         for label, cluster_docs in sorted(clusters.items(), key=lambda x: -len(x[1])):
-            contents = [d.page_content for d in cluster_docs]
+            contents = [d.page_content.strip() for d in cluster_docs if d.page_content.strip()]
+            if not contents:
+                continue
             topic_name = self._name_cluster(contents)
+            if '의견이 없' in topic_name or len(topic_name) > 30:
+                continue
             results.append({
                 'topic': topic_name,
                 'count': len(cluster_docs),
