@@ -1,23 +1,23 @@
 # Tests and Benchmarks
 
-The main regression suite is:
+핵심 회귀 테스트는 아래 명령으로 실행합니다.
 
 ```bash
 uv run --extra dev python -m pytest
 ```
 
-Current local verification:
+현재 로컬 검증 결과:
 
-- 33 tests collected
-- 33 passed
+- 33개 테스트 수집
+- 33개 통과
 
-## Structure
+## 구조
 
-- `unit/`: isolated tests for FAISS, filtering, topic clustering, sentiment
-  analysis, and LangGraph report-agent behavior.
-- `integration/`: FastAPI endpoint tests with external dependencies mocked.
-- `benchmark_*.py`: optional live benchmark scripts used to measure throughput
-  improvements. These require local experiment data and API credentials.
-- `locustfile.py`: optional load-test scenario.
+- `unit/`: FAISS, 필터링, 토픽 클러스터링, 감성 분석, LangGraph 리포트
+  에이전트 동작을 검증합니다.
+- `integration/`: 외부 의존성을 mock 처리한 FastAPI 엔드포인트 테스트입니다.
+- `benchmark_*.py`: 처리량 개선을 측정하기 위해 사용한 선택 실행 스크립트입니다.
+  로컬 실험 데이터와 API 키가 필요합니다.
+- `locustfile.py`: 부하 테스트 시나리오입니다.
 
-Generated benchmark logs and JSON outputs are intentionally ignored.
+생성된 벤치마크 로그와 JSON 결과는 Git에 올리지 않습니다.

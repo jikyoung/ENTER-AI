@@ -1,115 +1,138 @@
 # ENTER-AI
 
-> AI agents that turn noisy public feedback into decision-ready product signals.
+> 리뷰는 AI가 읽고, 서비스팀은 중요한 카드만 봅니다.
 
-ENTER-AI is an AI workflow project that collects online feedback, filters noise,
-clusters issues, and generates evidence-backed reports with a LangGraph
-multi-agent pipeline.
+ENTER-AI는 온라인 리뷰와 커뮤니티 글을 수집해 노이즈를 걷어내고,
+반복되는 사용자 신호를 이슈 단위로 묶어 리포트와 액션 카드로 바꾸는
+AI 워크플로우 프로젝트입니다.
 
-For the SparkClaw application, this repository is positioned as the execution
-evidence behind **SignalOps AI**: a B2B SaaS concept that turns app reviews,
-community posts, and customer feedback into actionable issue cards for product,
-CX, and QA teams.
+처음에는 4개 커뮤니티와 구글 리뷰를 크롤링해 여론 분석 PDF를 만드는
+시스템으로 시작했습니다. 이후 실제 데이터 품질을 점검하면서 방향을
+다시 잡았고, 현재는 **Review Signal Agent**라는 제품 방향으로 발전시키고
+있습니다.
 
-## Product Direction
+## 지금 만들고 있는 것
 
-**SignalOps AI** is an AI-native ReviewOps agent.
+**Review Signal Agent**는 앱 리뷰, 커뮤니티 글, 고객 피드백에서
+제품팀이 오늘 봐야 할 신호만 골라내는 ReviewOps Agent입니다.
 
-It does not stop at summarizing reviews. It detects repeated customer signals,
-groups them into product issues, attaches evidence, estimates confidence, and
-prepares the next action for tools such as Slack, Notion, or Jira.
+단순히 리뷰를 예쁘게 요약하는 것이 아니라, 아래 흐름을 자동화하는 것이
+목표입니다.
 
-Target users:
+1. 리뷰와 공개 피드백을 수집한다.
+2. 짧은 칭찬, 욕설, 중복, 무관한 글을 걸러낸다.
+3. 반복되는 불만/기능 요청/장애 신호를 이슈로 묶는다.
+4. 근거 리뷰, 심각도, confidence, 담당팀, 추천 액션을 붙인다.
+5. Slack, Notion, Jira 같은 업무 도구로 넘길 수 있는 카드로 만든다.
 
-- Product managers who need to prioritize real user problems
-- CX teams that need recurring complaint patterns
-- QA teams that need regression and release feedback signals
-- App operators who need early warning on authentication, payment, crash, or CS issues
+한 줄로 정리하면:
 
-## Why This Repository Matters
+> 고객 피드백을 읽는 도구가 아니라, 고객 피드백을 제품팀의 다음 일로
+> 바꾸는 에이전트입니다.
 
-SparkClaw evaluates execution capacity more than idea novelty. This repository
-shows that the AI workflow has already been built, measured, refactored, and
-tested.
+## 왜 이 방향으로 바꿨나
 
-| Evidence | Result |
+초기 ENTER-AI는 커뮤니티 여론 분석 자동화에 가까웠습니다. 하지만 직접
+데이터를 뜯어보니 커뮤니티 데이터는 검색 URL 중복, 출처 불균형, 근거
+인용의 어려움이 컸습니다.
+
+그래서 “더 많은 데이터를 긁어서 더 긴 리포트를 쓰는 것”보다,
+**신뢰할 수 있는 리뷰 데이터에서 실행 가능한 신호만 남기는 것**이 더
+좋은 제품이라고 판단했습니다.
+
+관련 기록:
+
+- [`docs/project_history.md`](docs/project_history.md): 프로젝트 흐름과 의사결정 기록
+- [`docs/product_direction.md`](docs/product_direction.md): 현재 제품 방향 정리
+- [`docs/review_signal_agent_spec.md`](docs/review_signal_agent_spec.md): Review Signal Agent 제품 명세
+- [`analysis/README.md`](analysis/README.md): 데이터 품질 점검과 V0 실험 스크립트
+
+## 현재 구현된 핵심
+
+| 영역 | 내용 |
 | --- | --- |
-| LangGraph multi-agent workflow | `Sentiment -> Topic -> Writer -> Critic` report generation |
-| LLM filtering optimization | 5,113 items: 84.56 min -> 3.94 min, 21.46x faster |
-| Crawling optimization | 4-site crawling: about 8 min -> 2.6 min, 2.7x faster |
-| Test suite | 33 unit/integration tests were written for core logic |
-| Load test | 0% error rate with 5 concurrent users in Locust scenario |
-| Data quality audit | Community data limitations were measured before product repositioning |
+| 크롤링 | Scrapy/Splash 기반 커뮤니티 크롤러, Google Play 리뷰 수집 |
+| 필터링 | LLM 기반 관련성 필터, 규칙 기반 노이즈 사전 제거 |
+| 저장/RAG | FAISS 벡터DB, 키워드별 저장, 증분 병합 |
+| 토픽 분석 | KMeans 클러스터링 + LLM 토픽 네이밍 |
+| 멀티에이전트 | LangGraph 기반 `Sentiment -> Topic -> Writer -> Critic` |
+| 리포트 | 감성/토픽/근거를 포함한 PDF 리포트 생성 |
+| 품질 | 단위/통합 테스트, 벤치마크, 부하 테스트 |
 
-## Multi-Agent Architecture
+## 에이전트 구조
 
 ```mermaid
 flowchart LR
-    A["Crawlers<br/>Community + Google Play"] --> B["FilterChain<br/>Relevance + noise filtering"]
-    B --> C["VectorPipeline<br/>FAISS + incremental merge"]
-    C --> D["SentimentAgent<br/>sentiment insight"]
-    C --> E["TopicAgent<br/>issue clustering"]
-    D --> F["WriterAgent<br/>report draft"]
+    A["수집<br/>커뮤니티 + Google Play"] --> B["필터링<br/>관련 글 / 노이즈 분리"]
+    B --> C["벡터DB<br/>FAISS + 증분 병합"]
+    C --> D["Sentiment Agent<br/>감성 수치 해석"]
+    C --> E["Topic Agent<br/>반복 이슈 해석"]
+    D --> F["Writer Agent<br/>리포트 초안 작성"]
     E --> F
-    F --> G["CriticAgent<br/>fact and evidence check"]
+    F --> G["Critic Agent<br/>수치/근거/추측 검증"]
     G -- "RETRY" --> F
-    G -- "PASS" --> H["PDF / Report output"]
+    G -- "PASS" --> H["리포트 / 이슈 카드"]
 ```
 
-The workflow treats AI models as team members:
+이 프로젝트에서 AI는 하나의 호출이 아니라 역할을 나눈 작업자처럼 쓰입니다.
 
-- **Filter agent**: removes irrelevant or low-quality documents
-- **Sentiment agent**: extracts sentiment distribution and interpretation
-- **Topic agent**: turns clustered documents into issue-level insights
-- **Writer agent**: writes the structured report
-- **Critic agent**: checks whether the draft cites numbers, topics, and evidence
+- **Filter**: 무관한 글을 제거한다.
+- **Sentiment**: 감성 비율을 계산하고 의미를 해석한다.
+- **Topic**: 비슷한 글을 묶어 이슈로 만든다.
+- **Writer**: 분석 결과를 사람이 읽을 수 있는 구조로 정리한다.
+- **Critic**: 숫자와 근거가 빠졌는지, 추측이 섞였는지 다시 본다.
 
-## Current Repository Guide
+## 수치로 남긴 개선
 
-| Path | Purpose |
+| 항목 | 결과 |
 | --- | --- |
-| `project/server/modules/report_agent.py` | LangGraph multi-agent report workflow |
-| `project/server/modules/chain_pipeline.py` | RAG, sentiment analysis, and PDF report generation |
-| `project/server/modules/topic_pipeline.py` | FAISS + KMeans topic clustering |
-| `project/server/modules/vectordb_pipeline.py` | FAISS store creation, deletion, and incremental merge |
-| `project/filter_pipeline/filter_chain.py` | LLM-based relevance filtering |
-| `crawler/` | Scrapy/Splash and Google Play crawling assets |
-| `tests/` | Unit, integration, benchmark, and load-test scripts |
-| `docs/project_history.md` | Execution history and major technical decisions |
-| `docs/review_signal_agent_spec.md` | Product spec for the Review Signal Agent direction |
-| `docs/sparkclaw_submission.md` | Submission positioning and application summary |
+| LLM 필터링 | SKT 5,113건 기준 84.56분 -> 3.94분, 21.46배 개선 |
+| 크롤링 | 4개 사이트 순차 수집 약 8분 -> 병렬 수집 약 2.6분 |
+| RAG 첫 응답 | 17.76초 -> 10.09초 |
+| 테스트 | 단위/통합 테스트 33개 |
+| 부하 테스트 | 동시 5명 시나리오에서 에러율 0% |
 
-## Technical Stack
+성능 개선 과정에서는 단순히 빠른 모델로 바꾸는 대신, 정확도와 비용을 같이
+봤습니다. 예를 들어 더 싼 모델로 다운그레이드하는 실험은 정확도 차이가 커서
+채택하지 않았고, 대신 비동기 병렬화와 배치 처리로 처리량을 개선했습니다.
 
-- Python, FastAPI, Pydantic
-- LangGraph, LangChain, OpenAI models
-- FAISS, OpenAI embeddings, scikit-learn KMeans
-- Scrapy, Splash, Google Play scraper
-- ReportLab, Mermaid
-- pytest, pytest-asyncio, FastAPI TestClient, Locust
+## 저장소 구조
 
-## Run Locally
+| 경로 | 설명 |
+| --- | --- |
+| `project/server/modules/report_agent.py` | LangGraph 멀티에이전트 리포트 파이프라인 |
+| `project/server/modules/chain_pipeline.py` | RAG, 감성 분석, PDF 리포트 생성 |
+| `project/server/modules/topic_pipeline.py` | FAISS + KMeans 토픽 클러스터링 |
+| `project/server/modules/vectordb_pipeline.py` | 벡터DB 저장/삭제/증분 병합 |
+| `project/filter_pipeline/filter_chain.py` | LLM 기반 관련성 필터 |
+| `crawler/` | 커뮤니티 및 Google Play 크롤링 코드 |
+| `analysis/` | 데이터 품질 점검과 V0 제품 검증 스크립트 |
+| `tests/` | 단위 테스트, 통합 테스트, 벤치마크 스크립트 |
+| `docs/` | 제품 명세와 프로젝트 의사결정 기록 |
 
-This project uses `uv`.
+## 실행
+
+이 프로젝트는 `uv`를 사용합니다.
 
 ```bash
 uv sync --extra dev
 uv run --extra dev python -m pytest
 ```
 
-Live crawling and LLM report generation require environment variables such as
-`OPENAI_API_KEY`. Unit and integration tests are designed to mock external LLM
-calls where possible.
+현재 테스트:
 
-## SparkClaw Submission Summary
+```text
+33 passed
+```
 
-Recommended application framing:
+실제 크롤링과 LLM 리포트 생성에는 `OPENAI_API_KEY` 같은 환경변수가 필요합니다.
+테스트에서는 외부 LLM 호출을 가능한 한 mock 처리합니다.
 
-- **Company / solution name**: SignalOps AI
-- **Industry tags**: A.I., SaaS, Data Analytics
-- **One-liner**: AI agents that convert app reviews and customer feedback into
-  issue cards, evidence, and product-team actions.
-- **Core proof**: ENTER-AI already implements the underlying agentic workflow,
-  async LLM optimization, RAG, crawling, tests, and benchmark history.
+## 다음 단계
 
-More details are in [`docs/sparkclaw_submission.md`](docs/sparkclaw_submission.md).
+- Google Play 리뷰 중심의 V1 파이프라인 분리
+- Review Signal Agent용 `signal_agent/` 모듈 신설
+- Issue Card, What's Working Card, Quality Report 생성
+- confidence/refusal 로직 구현
+- Notion/Slack/Jira 전달 레이어 추가
+- 앱팀 인터뷰와 파일럿으로 실제 유용성 검증
