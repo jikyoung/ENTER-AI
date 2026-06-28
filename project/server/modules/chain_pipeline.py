@@ -6,6 +6,7 @@ pyrootutils.setup_root(search_from = __file__,
 import os
 import asyncio
 import pickle
+import time
 from pathlib import Path
 from operator import itemgetter
 
@@ -31,8 +32,11 @@ from reportlab.platypus.flowables import HRFlowable
 from reportlab.platypus import BaseDocTemplate, PageTemplate, KeepTogether, Frame
 
 from utils.mermaid_utils import *
+from utils.logger import get_logger
 from server.modules.set_template import SetTemplate
 from server.modules.topic_pipeline import TopicPipeline
+
+logger = get_logger(__name__)
 
 
 class ChainPipeline():
@@ -222,24 +226,46 @@ class ReportChainPipeline():
         index_to_id = vectorstore.index_to_docstore_id
         all_docs = [vectorstore.docstore.search(index_to_id[i]) for i in range(len(index_to_id))]
 
-        mini_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-        semaphore = asyncio.Semaphore(50)
+        logger.info("감성 분석 시작 | keyword=%s 문서수=%d", self.keyword, len(all_docs))
+        start = time.time()
 
-        async def classify(doc):
-            text = doc.page_content[:300].replace('\x00', '').replace('\r', ' ').strip()
+        import json
+
+        mini_llm = ChatOpenAI(
+            model="gpt-4o-mini",
+            temperature=0,
+            model_kwargs={"response_format": {"type": "json_object"}}
+        )
+        semaphore = asyncio.Semaphore(5)
+        BATCH_SIZE = 20
+
+        async def classify_batch(batch):
+            """여러 건을 하나의 API 호출로 처리"""
+            items = ""
+            for i, doc in enumerate(batch, 1):
+                text = doc.page_content[:200].replace('\x00', '').replace('\r', ' ').strip()
+                items += f"{i}. {text}\n"
+
             prompt = (
-                f"다음 텍스트에서 '{self.keyword}'에 대한 사용자 감성을 분류하세요.\n"
+                f"다음 텍스트들에서 '{self.keyword}'에 대한 감성을 각각 분류하세요.\n"
                 f"'{self.keyword}' 서비스/제품에 대한 직접적인 의견이 없으면 '중립'으로 분류하세요.\n"
-                f"'긍정', '부정', '중립' 중 하나로만 답하세요.\n\n{text}"
+                f"JSON 형식으로 답하세요: {{\"1\": \"긍정\", \"2\": \"부정\", ...}}\n\n"
+                f"{items}"
             )
             async with semaphore:
                 try:
                     result = await mini_llm.ainvoke(prompt)
-                    return result.content.strip()
-                except Exception:
-                    return '중립'
+                    parsed = json.loads(result.content.strip())
+                    return [parsed.get(str(i), '중립') for i in range(1, len(batch) + 1)]
+                except Exception as e:
+                    logger.warning("배치 감성 분류 실패 → 중립 처리 | %s: %s", type(e).__name__, str(e)[:80])
+                    return ['중립'] * len(batch)
 
-        labels = await asyncio.gather(*[classify(doc) for doc in all_docs])
+        batches = [all_docs[i:i + BATCH_SIZE] for i in range(0, len(all_docs), BATCH_SIZE)]
+        batch_results = await asyncio.gather(*[classify_batch(b) for b in batches])
+        labels = [label for result in batch_results for label in result]
+        logger.info("감성 분석 완료 | %.1fs | 긍정=%d 부정=%d 중립=%d",
+                    time.time() - start, labels.count('긍정'), labels.count('부정'), labels.count('중립'))
 
         pos = labels.count('긍정')
         neg = labels.count('부정')
@@ -400,7 +426,7 @@ class ReportChainPipeline():
         # doc.addPageTemplates(frontpage)
         # doc.build(L)
         
-        return str(self.BASE_DIR / 'Report.pdf')
+        return str(self.BASE_DIR / f'Report_{self.keyword}.pdf')
         
     
     def mermaid(self,content,L):
@@ -429,7 +455,7 @@ class ReportChainPipeline():
         )
         L.append(KeepTogether([]))
         
-        doc = BaseDocTemplate(str(self.BASE_DIR / 'Report.pdf'), pagesize=A4)
+        doc = BaseDocTemplate(str(self.BASE_DIR / f'Report_{self.keyword}.pdf'), pagesize=A4)
         frontpage = PageTemplate(id     = 'FrontPage',
                                  frames = [text_frame]
                     )

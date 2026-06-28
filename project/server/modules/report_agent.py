@@ -1,4 +1,5 @@
 import asyncio
+import time
 from typing import TypedDict, Annotated
 from pathlib import Path
 
@@ -10,6 +11,9 @@ from langgraph.graph import StateGraph, END
 
 from server.modules.set_template import SetTemplate
 from server.modules.topic_pipeline import TopicPipeline
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 # ──────────────────────────────────────────────
@@ -36,6 +40,7 @@ class ReportState(TypedDict):
 
 def sentiment_node(state: ReportState) -> dict:
     """감성 수치 → 핵심 인사이트 문장화"""
+    logger.info("[sentiment_node] 시작 | keyword=%s", state["keyword"])
     s = state["sentiment"]
     keyword = state["keyword"]
 
@@ -60,11 +65,13 @@ def sentiment_node(state: ReportState) -> dict:
 
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     result = llm.invoke(prompt)
+    logger.info("[sentiment_node] 완료")
     return {"sentiment_insight": result.content.strip()}
 
 
 def topic_node(state: ReportState) -> dict:
     """토픽 클러스터 → 주요 이슈 해석 및 우선순위 정리"""
+    logger.info("[topic_node] 시작 | topics=%d개", len(state["topics"]))
     topics = state["topics"]
     keyword = state["keyword"]
 
@@ -85,11 +92,13 @@ def topic_node(state: ReportState) -> dict:
 
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     result = llm.invoke(prompt)
+    logger.info("[topic_node] 완료")
     return {"topic_insight": result.content.strip()}
 
 
 def writer_node(state: ReportState) -> dict:
     """sentiment/topic 해석 + FAISS context → 보고서 초안 작성"""
+    logger.info("[writer_node] 시작 | iteration=%d", state.get("iterations", 0) + 1)
     critique = state.get("critique", "")
     retry_instruction = ""
     if critique and "RETRY" in critique:
@@ -114,6 +123,7 @@ def writer_node(state: ReportState) -> dict:
 
     llm = ChatOpenAI(model="gpt-4o", temperature=0.3)
     result = llm.invoke(prompt)
+    logger.info("[writer_node] 완료 | 초안 %d자", len(result.content))
     return {
         "draft": result.content.strip(),
         "iterations": state.get("iterations", 0) + 1,
@@ -122,6 +132,7 @@ def writer_node(state: ReportState) -> dict:
 
 def critic_node(state: ReportState) -> dict:
     """초안 품질 평가 → PASS or RETRY"""
+    logger.info("[critic_node] 시작 | iteration=%d", state.get("iterations", 0))
     s = state["sentiment"]
     checklist = (
         f"[평가 기준]\n"
@@ -139,7 +150,9 @@ def critic_node(state: ReportState) -> dict:
     critique = result.content.strip()
 
     if "PASS" in critique or state.get("iterations", 0) >= 2:
+        logger.info("[critic_node] PASS | iteration=%d", state.get("iterations", 0))
         return {"critique": critique, "final_report": state["draft"]}
+    logger.info("[critic_node] RETRY | %s", critique[:100])
     return {"critique": critique}
 
 
@@ -248,8 +261,11 @@ class ReportAgent:
         )
 
     async def run(self) -> str:
+        logger.info("ReportAgent 실행 시작 | user_id=%s keyword=%s", self.user_id, self.keyword)
+        start = time.time()
         initial_state = await self._build_initial_state()
         result = await asyncio.get_event_loop().run_in_executor(
             None, self.graph.invoke, initial_state
         )
+        logger.info("ReportAgent 완료 | %.1fs | user_id=%s keyword=%s", time.time() - start, self.user_id, self.keyword)
         return result["final_report"]

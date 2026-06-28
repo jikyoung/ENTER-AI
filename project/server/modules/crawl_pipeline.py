@@ -1,6 +1,6 @@
 import pyrootutils
 project_root = pyrootutils.setup_root(search_from = __file__,
-                                      indicator   = "README.md",
+                                      indicator   = "pyproject.toml",
                                       pythonpath  = True)
 
 import os
@@ -11,6 +11,10 @@ import subprocess
 import pandas as pd
 import importlib.util
 from datetime import datetime
+
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class CrawlManager():
@@ -25,6 +29,8 @@ class CrawlManager():
 
 
     def run(self, except_spider:list[str]=[]):
+        logger.info("크롤링 시작 | user_id=%s keyword=%s", self.user_id, self.keyword)
+        start = time.time()
 
         container_id = self.run_docker_splash()
 
@@ -32,9 +38,13 @@ class CrawlManager():
             os.makedirs(self.base_dir, exist_ok=True)
 
         spider_commands = self.get_spider_commands(except_spider)
-        self.run_scrapy(spider_commands)
+        google_command  = self.get_google_play_command()
+
+        self.run_scrapy(spider_commands + [google_command])
         self.remove_docker_container(container_id)
         self.merge_csv_files()
+
+        logger.info("크롤링 완료 | %.1fs | user_id=%s keyword=%s", time.time() - start, self.user_id, self.keyword)
 
 
     @staticmethod
@@ -70,12 +80,18 @@ class CrawlManager():
         subprocess.run(remove_command, shell=True)
 
 
+    def get_google_play_command(self):
+        script_path = self.module_path.parent / 'google_crawl' / 'google_crawl.py'
+        output_path = self.base_dir / 'A_googleplay.csv'
+        return f"uv run --project {str(project_root)} python3 {script_path} --user_id {self.user_id} --keyword {self.keyword} --output {output_path}"
+
     def get_spider_commands(self, except_spider):
 
         spiders = self._get_spider_name(except_spider)
+        crawler_dir = str(self.module_path.parent.parent)
         commands = []
         for spider in spiders:
-            cmd = f"scrapy crawl {spider} -a user_id={self.user_id} -a keyword={self.keyword} -o {self.base_dir}/A_{spider.lower().split('spider')[0]}.csv"
+            cmd = f"cd {crawler_dir} && uv run --project {str(project_root)} python3 -m scrapy crawl {spider} -a user_id={self.user_id} -a keyword={self.keyword} -o {self.base_dir}/A_{spider.lower().split('spider')[0]}.csv"
             commands.append(cmd)
 
         return commands
@@ -152,23 +168,24 @@ class CrawlManager():
                         dataframes_list.append(df)
 
                 except pd.errors.EmptyDataError:
+                    logger.warning("빈 CSV 파일 스킵 | %s", file)
                     continue
 
             if not dataframes_list:
                 continue
 
             merged_df = pd.concat(dataframes_list)
-            print(f"{crawl_dir}에서 {len(dataframes_list)}개의 데이터프레임을 병합 중입니다.")
+            logger.info("%s에서 %d개 데이터프레임 병합 중", crawl_dir, len(dataframes_list))
 
             if not merged_df.empty:
                 merged_df.to_csv(crawl_dir / 'merged_data.csv', index=False)
-                print(f"병합된 데이터를 {crawl_dir / 'merged_data.csv'}에 저장했습니다.")
+                logger.info("병합 완료 | %s (%d행)", crawl_dir / 'merged_data.csv', len(merged_df))
 
                 for csv_file in csv_files:
                     os.remove(csv_file)
-                    
+
             else:
-                print(f"병합된 데이터프레임이 비어 있어 {crawl_dir}에 CSV로 저장되지 않았습니다.")
+                logger.warning("병합 결과 비어있음 | %s", crawl_dir)
 
 
 if __name__ == "__main__":

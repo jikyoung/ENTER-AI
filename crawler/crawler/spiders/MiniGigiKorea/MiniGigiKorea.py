@@ -8,6 +8,8 @@ project_root = pyrootutils.setup_root(search_from = __file__,
 import re
 import scrapy
 import numpy as np
+
+HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
 from pathlib import Path
 from datetime import datetime
 from utils import CrawlerSettings
@@ -20,12 +22,25 @@ dir_spiders = Path(__file__).parent.absolute()
 
 class MiniGigiKoreaSpider(scrapy.Spider):
     name = "MiniGigiKoreaSpider"
-    custom_settings = CrawlerSettings.get("SPLASH_LOCAL")
+    custom_settings = {
+        **CrawlerSettings.get("SPLASH_LOCAL"),
+        "CONCURRENT_REQUESTS": 2,
+        "DOWNLOAD_DELAY": 1.5,
+        "RANDOMIZE_DOWNLOAD_DELAY": True,
+        "AUTOTHROTTLE_ENABLED": True,
+        "AUTOTHROTTLE_START_DELAY": 1,
+        "AUTOTHROTTLE_MAX_DELAY": 10,
+        "AUTOTHROTTLE_TARGET_CONCURRENCY": 1.0,
+        "RETRY_HTTP_CODES": [429, 500, 502, 503, 504],
+        "RETRY_TIMES": 3,
+    }
 
-    def __init__(self, user_id:str, keyword:str):
+    def __init__(self, user_id:str, keyword:str, max_pages: int | str = 3, since_date: str | None = None):
         super().__init__()
         self.site       = '미니기기코리아'
         self.keyword    = keyword
+        self.max_pages  = int(max_pages)
+        self.since_date = since_date
         self.start_urls = [f"https://meeco.kr/?_filter=search&act=&vid=&mid=ITplus&category=&search_target=title_content&search_keyword={self.keyword}"]
         self.base_dir = project_root / 'project' / 'user_data' / user_id / 'crawl_data' / keyword /datetime.today().strftime('%Y-%m-%dT%H:%M:%S')
 
@@ -39,46 +54,31 @@ class MiniGigiKoreaSpider(scrapy.Spider):
     # 시작 요청을 생성하는 함수를 정의
     def start_requests(self):
         for url in self.start_urls:
-            yield SplashRequest(
-                                url      = url,
-                                callback = self.parse,
-                                endpoint = "execute",
-                                args     = {"lua_source": self.lua_source},
-                                )
+            yield scrapy.Request(url=url, headers=HEADERS, callback=self.parse)
 
 
     def parse(self, response):
+        from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
         next_page_url = response.xpath('//div[@class="paging bBt"]/a[@class="pageNext"]/@href').get()
 
         if next_page_url:
-            yield SplashRequest(
-                                url=response.urljoin(next_page_url),
-                                callback=self.parse_page_cnt,
-                                endpoint="execute",
-                                args={"lua_source": self.lua_source},
-                                )
+            full_next_url = response.urljoin(next_page_url)
+            parsed = urlparse(full_next_url)
+            params = parse_qs(parsed.query)
 
+            # pageNext URL에서 마지막 페이지 번호와 division 파라미터 동적 추출
+            last_page = int(params.get('page', [1])[0])
 
-    def parse_page_cnt(self, response):
-        last_page_number = int(response.xpath('//div[@class="paging bBt"]/a[@class="pageNum on num"]/text()').get())
-
-        if last_page_number == 1:
-            url = f'https://meeco.kr/?_filter=search&act=&vid=&mid=ITplus&category=&search_target=title_content&search_keyword={self.keyword}'
-
-            yield scrapy.Request(url=url, callback=self.parse_info)
-            
+            for i in range(1, min(last_page, self.max_pages) + 1):
+                params['page'] = [str(i)]
+                new_query = urlencode({k: v[0] for k, v in params.items()})
+                new_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, '', new_query, ''))
+                yield scrapy.Request(url=new_url, headers=HEADERS, callback=self.parse_info)
         else:
-            for i in range(1, last_page_number+1):
-                url = f'https://meeco.kr/index.php?_filter=search&mid=ITplus&search_target=title_content&search_keyword={self.keyword}&division=-38162354&last_division=-35713619&page={i}'
-
-
-                yield SplashRequest(
-                                    url      = url,
-                                    callback = self.parse_info,
-                                    endpoint = "execute",
-                                    args     = {"lua_source": self.lua_source},
-                                    )
+            # 페이지가 1개뿐인 경우
+            yield scrapy.Request(url=response.url, headers=HEADERS, callback=self.parse_info,
+                                 dont_filter=True)
 
 
     def parse_info(self, response):
@@ -87,12 +87,7 @@ class MiniGigiKoreaSpider(scrapy.Spider):
             detail_url = href.get()
             post_url = response.urljoin(detail_url)
 
-            yield SplashRequest(
-                                url      = post_url,
-                                callback = self.parse_detail,
-                                endpoint = "execute",
-                                args     = {"lua_source": self.lua_source},
-                                )
+            yield scrapy.Request(url=post_url, headers=HEADERS, callback=self.parse_detail)
 
 
     def parse_detail(self, response):
@@ -125,7 +120,7 @@ class MiniGigiKoreaSpider(scrapy.Spider):
         #게시글 카테고리
         documentcategory = response.xpath('//span[@class="atc-ctg"]//a/text()').get()
 
-        MiniGigiKorea_data = dict(url              = self.start_urls,
+        MiniGigiKorea_data = dict(url              = response.url,
                                   site             = self.site,
                                   document         = document,
                                   documenttype     = np.nan,

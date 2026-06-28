@@ -9,6 +9,8 @@ import re
 import scrapy
 import requests
 import numpy as np
+
+HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
@@ -25,7 +27,7 @@ dir_spiders = Path(__file__).parent.absolute()
 # 페이지 수를 계산하는 함수
 def page_cnt(keyword):
     url = f"https://quasarzone.com/groupSearches?keyword={keyword}&page=1"
-    response = requests.get(url)
+    response = requests.get(url, headers=HEADERS)
     dom=BeautifulSoup(response.text,"html.parser")
     
     n = int(dom.select("small")[0].text.split()[1].replace(',',''))
@@ -49,10 +51,12 @@ class QuesarzoneSpider(scrapy.Spider):
     name = "QuesarzoneSpider"
     custom_settings = CrawlerSettings.get("SPLASH_LOCAL")
 
-    def __init__(self, user_id:str, keyword:str):
+    def __init__(self, user_id:str, keyword:str, max_pages: int | str = 3, since_date: str | None = None):
         super().__init__()
         self.site     = '퀘이사존'
         self.keyword  = keyword
+        self.max_pages = int(max_pages)
+        self.since_date = since_date
         self.start_urls      = [f"https://quasarzone.com/groupSearches?keyword={self.keyword}"]
         self.num_page = page_cnt(keyword)
         self.data     = pd.DataFrame(columns=[
@@ -80,27 +84,15 @@ class QuesarzoneSpider(scrapy.Spider):
     # 시작 요청을 생성하는 함수를 정의
     def start_requests(self):
         for url in self.start_urls:
-            yield SplashRequest(
-                                url      = url,
-                                callback = self.parse,
-                                endpoint = "execute",
-                                args     = {"lua_source": self.lua_source},
-                                )
+            yield scrapy.Request(url=url, headers=HEADERS, callback=self.parse)
 
 
     # 메인 페이지를 파싱하는 함수를 정의
     def parse(self, response):
-        for i in range(1, page_cnt(self.keyword)+1):
+        for i in range(1, min(page_cnt(self.keyword), self.max_pages)+1):
             url = f'https://quasarzone.com/groupSearches?keyword={self.keyword}&page={i}'
 
-
-            yield SplashRequest(
-                                url      = url,
-                                endpoint = "execute",
-                                args     = {"lua_source": self.lua_source},
-                                meta     = {'url': url},
-                                callback = self.parse_content,
-                                )
+            yield scrapy.Request(url=url, headers=HEADERS, meta={'url': url}, callback=self.parse_content)
 
 
     # 컨텐츠 페이지를 파싱하는 함수를 정의
@@ -110,13 +102,7 @@ class QuesarzoneSpider(scrapy.Spider):
             detail_url = href.get()
             post_url = response.urljoin(detail_url)
 
-
-            yield SplashRequest(
-                                url      = post_url,
-                                callback = self.parse_text,
-                                endpoint = "execute",
-                                args     = dict(lua_source=self.lua_source),
-                                )
+            yield scrapy.Request(url=post_url, headers=HEADERS, callback=self.parse_text)
 
 
     # 텍스트를 파싱하는 함수를 정의
@@ -141,7 +127,7 @@ class QuesarzoneSpider(scrapy.Spider):
         boardcategorys_text = response.xpath('//div[@class="l-title"]//h2//text()').getall()[0]
         boardcategory = re.sub(r'^\d+\s*|\s{2,}', ' ', boardcategorys_text).strip().split('-')[0]
 
-        Quesarzone_data = dict(url              = self.start_urls[0],
+        Quesarzone_data = dict(url              = response.url,
                                site             = self.site,
                                document         = document,
                                documenttype     = np.nan,
@@ -162,7 +148,5 @@ if __name__ == '__main__':
     process = CrawlerProcess()
     process.crawl(QuesarzoneSpider, keyword='기가지니', user_id='asdf1234')
     process.start()
-
-
 
 

@@ -10,6 +10,8 @@ import re
 import scrapy
 import requests
 import numpy as np
+
+HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
@@ -26,11 +28,13 @@ dir_spiders = Path(__file__).parent.absolute()
 class ClienSpider(scrapy.Spider):
     name = "ClienSpider"
  
-    def __init__(self, user_id:str, keyword:str):
+    def __init__(self, user_id:str, keyword:str, max_pages: int | str = 3, since_date: str | None = None):
         super().__init__()
         self.site       = '클리앙'
         self.user_id    = user_id
         self.keyword    = keyword
+        self.max_pages  = int(max_pages)
+        self.since_date = datetime.fromisoformat(since_date).date() if since_date else None
         self.url        = f"https://www.clien.net/service/search?q={self.keyword}"
         self.data       = pd.DataFrame(columns=[
                                                'url',
@@ -58,26 +62,47 @@ class ClienSpider(scrapy.Spider):
     def start_requests(self):
         i = 0
         
-        while True:
+        while i < self.max_pages:
             url = f"https://www.clien.net/service/search?q={self.keyword}&sort=recency&p={i}&boardCd=&isBoard=false"
-            response = requests.get(url)
+            response = requests.get(url, headers=HEADERS)
             dom = BeautifulSoup(response.text, "html.parser")
             elements = dom.select(".board-nav-page")
 
             if not elements:
                 break
 
-            content = dom.select(".subject_fixed")
+            items = dom.select(".list_item")
+            if not items:
+                break
 
-            for j in range(len(content)):
-                post_url = "https://www.clien.net" + content[j]['href']
+            older_items = 0
+            for item in items:
+                content = item.select_one(".subject_fixed")
+                if not content:
+                    continue
+
+                timestamp = item.select_one(".timestamp")
+                postdate = timestamp.get_text(strip=True) if timestamp else ""
+                if self.since_date and postdate:
+                    post_date = datetime.fromisoformat(postdate).date()
+                    if post_date < self.since_date:
+                        older_items += 1
+                        continue
+
+                board = item.select_one(".shortname")
+                boardcategory = board.get_text(" ", strip=True).replace("검색", "").strip() if board else None
+                post_url = "https://www.clien.net" + content['href']
 
                 yield SplashRequest(
                                     url      = post_url,
                                     callback = self.parse,
                                     endpoint = "execute",
                                     args     = {"lua_source": self.lua_source},
+                                    meta     = {"postdate": postdate, "boardcategory": boardcategory},
                                     )
+
+            if self.since_date and older_items == len(items):
+                break
 
             next_page_element = dom.select_one(".board-nav-next")
             if not next_page_element:
@@ -94,8 +119,12 @@ class ClienSpider(scrapy.Spider):
         document = remove_tags(documents)
 
         # 날짜
-        postdate = response.xpath('//div[@class="post_author"]/span')[0].get()
-        date = remove_tags(postdate)
+        postdate = response.meta.get("postdate")
+        if postdate:
+            date = postdate
+        else:
+            postdate = response.xpath('//div[@class="post_author"]/span')[0].get()
+            date = remove_tags(postdate)
 
 
         def clean_date(date_str):
@@ -114,7 +143,7 @@ class ClienSpider(scrapy.Spider):
         documentcategory = response.xpath('//span[@class="post_category"]//text()').get()
 
         # 게시판 카테고리
-        boardcategory = response.xpath('//div[@class="board_name"]//a//text()').get()
+        boardcategory = response.meta.get("boardcategory") or response.xpath('//div[@class="board_name"]//a//text()').get()
 
         # 좋아요
         likes = response.xpath('//a[@class="symph_count"]//text() | //a[@class="symph_count disable"]//text()').get()
@@ -122,7 +151,7 @@ class ClienSpider(scrapy.Spider):
         # 조회수
         views = response.xpath('//span[@class="view_count"]//strong/text()').get()
 
-        clien_data = dict(url              = self.url,
+        clien_data = dict(url              = response.url,
                           site             = self.site,
                           document         = document,
                           documenttype     = np.nan,
@@ -143,5 +172,3 @@ if __name__ == '__main__':
     process = CrawlerProcess()
     process.crawl(ClienSpider, keyword='기가지니', user_id='asdf1234')
     process.start()
-
-
